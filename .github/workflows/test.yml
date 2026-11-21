@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.9", "3.12"]
+        exclude:
+          # Python 3.9 gibt es auf dem aktuellen ubuntu-latest-Image nicht mehr;
+          # 3.9 wird deshalb auf windows-latest geprueft.
+          - os: ubuntu-latest
+            python: "3.9"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Test (nur Standardbibliothek noetig)
+        run: |
+          python -m pip install --upgrade pip pytest
+          python -m pytest -q

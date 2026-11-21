@@ -1,0 +1,19 @@
+# Beispiel fuer einen eigenen systemd-Dienst (Linux).
+# Bequemer: `powermeter service install` (legt die Unit unter ~/.config/systemd/user/ an).
+# Diese Vorlage bleibt ohne Installationspfad allgemein haltebar: Pfade anpassen.
+
+[Unit]
+Description=powermeter – Strommessung und Kosten
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/USER/powermeter
+ExecStart=/usr/bin/python3 -m powermeter run --headless
+Restart=always
+RestartSec=5
+# Falls RAPL ohne root gelesen werden soll, zusaendlich die udev-Regel aus der README anlegen.
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv*/
+data/
+config.json
+devices.json
+state.json
+*.log
+*.lock
+.portable
+_scratch-*
+PROGRESS.md
