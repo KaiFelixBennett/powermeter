@@ -7,6 +7,13 @@ All notable changes to this project are documented here; the format follows
 ## [Unreleased]
 
 ### Added
+- Linux display without Tk: `powermeter widget` (GTK4/Libadwaita) shows the last hour
+  as a curve, today's peak / mean / low, per-source shares as coloured bars and one row
+  per device. It reads the collector's CSVs only, so the collector can stay a headless
+  systemd service. `--autostart` writes the `.desktop` entries, `--service` installs a
+  user unit with `Restart=always` (the window comes back after a crash or a close).
+- Trend against five minutes ago, and an explicit `—` for a device that has no row in
+  the newest measured minute (plus its "last seen" time) instead of a silent 0 W.
 - `powermeter sync`: pull measurement rows from other hosts over SSH
   (`ssh <host> python3 -m powermeter export --since …`), deduplicated append,
   per-host "since" marker in `state.json`, `--list` and `--command` escape hatch.

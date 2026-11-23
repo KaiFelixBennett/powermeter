@@ -1,4 +1,4 @@
-"""Kommandozeile: powermeter run | report | scan | devices | merge | export | autostart | service
+"""Kommandozeile: powermeter run | widget | report | scan | devices | merge | export | autostart | service
 
 Beispiele
   powermeter run                      Logger + Widgets (falls Anzeige vorhanden)
@@ -118,6 +118,26 @@ def cmd_devices(core: Core, args) -> int:
             print(f"    {q.typ:<8} {q.bezeichnung:<18} {extra}")
     print(f"\nDateien: {core.paths.config} · {core.paths.devices} · {core.paths.data}")
     return 0
+
+
+def cmd_widget(core: Core, args) -> int:
+    """Linux-Anzeige: eigener Prozess, der nur liest (der Sammler misst weiter)."""
+    from .autostart import widget_autostart_set, widget_service_install, widget_service_remove
+
+    if args.autostart or args.no_autostart:
+        print(widget_autostart_set(args.autostart and not args.no_autostart), flush=True)
+        return 0
+    if args.service or args.no_service:
+        print(widget_service_remove() if args.no_service else widget_service_install(), flush=True)
+        return 0
+    try:
+        from .gtkwidget import run_widget
+    except ImportError as e:
+        print(f"Anzeige nicht verfuegbar: {e}\n"
+              "GTK4/PyGObject fehlt. Unter Windows nutzt powermeter das Tk-Widget "
+              "(`powermeter run`).", flush=True)
+        return 2
+    return run_widget(core.paths)
 
 
 def cmd_run(core: Core, args) -> int:
@@ -332,6 +352,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--on", action="store_true", help="switch back on instead of off")
     p.add_argument("--show", action="store_true", help="show what is currently off")
     p.set_defaults(fn=cmd_mute)
+
+    p = sub.add_parser("widget", help="Linux-Anzeige (GTK4) lesen neben dem Sammler her")
+    p.add_argument("--autostart", action="store_true", help="Anzeige bei Anmeldung starten")
+    p.add_argument("--no-autostart", action="store_true", help="Autostart der Anzeige entfernen")
+    p.add_argument("--service", action="store_true", help="Anzeige als systemd-Userdienst ( Restart, immer sichtbar )")
+    p.add_argument("--no-service", action="store_true", help="Anzeige-Dienst entfernen")
+    p.set_defaults(fn=cmd_widget)
 
     p = sub.add_parser("autostart", help="start the widget at login")
     p.add_argument("--enable", action="store_true")

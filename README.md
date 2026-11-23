@@ -16,7 +16,9 @@ Windows and Linux, for one machine or several devices at once.**
 | Operating systems | Windows 10/11, Linux (incl. WSL2) |
 
 A borderless desktop widget shows live watts plus today / total / per-day energy, cost
-and uptime. A logger writes one CSV row per minute. A CLI reports, exports and merges
+and uptime. On Linux there is a second display — a GTK4 window (`powermeter widget`)
+that reads the same CSVs while the collector keeps running headless, so the desktop
+shows power without needing Tk installed. A logger writes one CSV row per minute. A CLI reports, exports and merges
 the series. No daemon, no database, no inbound ports, no third-party dependencies —
 Python's standard library only.
 
@@ -39,6 +41,10 @@ CSV you can grep, and lets several machines report into one folder.
 
 - **Live widget, no window chrome**: always-on-top, draggable, click-through friendly;
   compact two-line mode for one device, full table for several.
+- **Display and collector can be separate processes**: `powermeter widget` (Linux,
+  GTK4/Libadwaita) draws the last hour as a curve, per-source shares and one row per
+  device, and reads only — the measuring stays a `--headless` systemd service. A device
+  with no row in the newest minute shows `—`, never a made-up 0 W.
 - **Per-device model**: each device has its own sources, PSU efficiency and (optionally)
   its own tariff — a desktop, a home server and a console measured on different boxes
   add up correctly.
@@ -85,6 +91,8 @@ powermeter report         # totals: today / total / per measured day
 powermeter scan           # which sources are available on this machine
 powermeter devices        # devices, their sources and host binding
 powermeter autostart --enable             # start at login (Run key / .desktop file)
+powermeter widget                # Linux display (GTK4), reads what the collector wrote
+powermeter widget --autostart    # ... at login; --service also restarts it if it dies
 ```
 
 ## Usage
@@ -224,7 +232,8 @@ Set `POWERMETER_HOSTNAME` when a VM copies its host's name (WSL2 does).
 | Battery | ✅ | ✅ `/sys/class/power_supply` | ❌ |
 | Smart plug / Shelly / HTTP JSON | ✅ | ✅ | ✅ |
 | File / fixed value / measured rest | ✅ | ✅ | ✅ |
-| Widget | ✅ | ✅ X11/Wayland (tkinter) | ⚠️ untested |
+| Widget (Tk) | ✅ | ✅ X11/Wayland, needs Tk | ⚠️ untested |
+| Display (GTK4, `powermeter widget`) | ❌ | ✅ X11/Wayland, no Tk needed | ❌ |
 | Autostart / service | Run key + scheduled task | `.desktop` + systemd user unit | ❌ |
 
 Everything in the ✅ rows was executed on real hardware in CI or on the machines

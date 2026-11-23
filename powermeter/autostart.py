@@ -73,6 +73,73 @@ def autostart_set(on: bool, headless: bool = False) -> None:
         "X-GNOME-Autostart-enabled=true\n", encoding="utf-8")
 
 
+# ------------------------------------------- Anzeige (Linux, GTK4): Autostart + Dienst
+WIDGET_APP = "de.powermeter.Widget"
+
+
+def widget_entries() -> str:
+    """`~/.desktop`-Eingaenge: Autostart bei Anmeldung + Eintrag im Anwendungsmenue."""
+    exe = f"{sys.executable} {launcher_path()} widget"  # Launcher setzt den Importpfad
+    inhalt = ("[Desktop Entry]\nType=Application\nName=powermeter\n"
+              "Comment=Stromverbrauch und Kosten auf dem Schreibtisch\n"
+              f"Exec={exe}\nTerminal=false\nStartupNotify=false\n"
+              f"X-GNOME-Autostart-enabled=true\n")
+    start = Path.home() / ".config" / "autostart" / f"{WIDGET_APP}.desktop"
+    menue = Path.home() / ".local" / "share" / "applications" / f"{WIDGET_APP}.desktop"
+    for pfad in (menue, start):
+        pfad.parent.mkdir(parents=True, exist_ok=True)
+        pfad.write_text(inhalt, encoding="utf-8")
+    return f"Autostart und Menueintrag geschrieben: {start}"
+
+
+def widget_autostart_set(an: bool) -> str:
+    start = Path.home() / ".config" / "autostart" / f"{WIDGET_APP}.desktop"
+    if not an:
+        try:
+            start.unlink()
+            return f"Autostart der Anzeige entfernt: {start}"
+        except FileNotFoundError:
+            return "Autostart der Anzeige war nicht eingerichtet"
+    return widget_entries()
+
+
+def widget_service_install(start: bool = True) -> str:
+    """Dienst mit Restart: die Anzeige soll wiederkommen, auch nach einem Absturz.
+
+    Ein zugekleckstes Fenster ist kein Fehler, sondern Nutzerwunsch – deshalb ist
+    der Dienst abgeschaltet, wenn man ihn nicht will, und nicht nachgebaut.
+    """
+    p = Path.home() / ".config" / "systemd" / "user" / "powermeter-widget.service"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
+        "[Unit]\nDescription=powermeter – Anzeige auf dem Schreibtisch\n"
+        "After=graphical-session.target\n\n[Service]\nType=simple\n"
+        f"ExecStart={sys.executable} {launcher_path()} widget\n"
+        "Restart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n", encoding="utf-8")
+    for befehl in (["systemctl", "--user", "daemon-reload"],
+                   ["systemctl", "--user", "enable", "--now", "powermeter-widget.service"] if start else []):
+        try:
+            subprocess.run(befehl, check=False, timeout=60)
+        except (OSError, subprocess.SubprocessError) as e:
+            log_error(f"systemctl: {e}")
+    return f"Dienst installiert und gestartet: {p}"
+
+
+def widget_service_remove() -> str:
+    p = Path.home() / ".config" / "systemd" / "user" / "powermeter-widget.service"
+    try:
+        subprocess.run(["systemctl", "--user", "disable", "--now", "powermeter-widget.service"],
+                       check=False, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        log_error(f"systemctl: {e}")
+    try:
+        p.unlink()
+    except FileNotFoundError:
+        pass
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, timeout=30)
+    return f"Anzeige-Dienst entfernt: {p}"
+
+
 # ------------------------------------------------------- systemd (Linux, User)
 UNIT = "powermeter.service"
 
