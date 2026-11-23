@@ -19,7 +19,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
-from .gtkdata import BEREICHE, lese_anzeige  # noqa: E402
+from .gtkdata import BEREICHE, bereich_schalte, lese_anzeige  # noqa: E402
 
 APP_ID = "de.powermeter.Widget"
 TICK_S = 5
@@ -452,16 +452,17 @@ class Fenster(Adw.ApplicationWindow):
 
     def bereich_klick(self, knopf, wert: str) -> None:
         """Bereich wechseln: ein Schalter an, die anderen aus, dann neu rechnen."""
-        if self._bereich_sperre:
+        zustand = bereich_schalte(self.bereich_knoepfe, wert, self._bereich_sperre)
+        if zustand is None:
             return                                  # Rückkopplung: hier nichts tun
         if wert == self.bereich:
             knopf.set_active(True)                  # Klick auf den aktiven Schalter
             return
-        self._bereich_sperre = True      # deckt auch ein Nachziehen ab: kein Signal,
-        try:                             # das hier erneut hereinfällt, kann schleifen
+        self._bereich_sperre = True      # deckt auch das Nachziehen ab: was hier
+        try:                             # erneut hereinfällt, darf nicht schleifen
             self.bereich = wert
-            for anderer, schalter in self.bereich_knoepfe.items():
-                schalter.set_active(anderer == wert)
+            for name, schalter in self.bereich_knoepfe.items():
+                schalter.set_active(zustand[name])
             self.aktualisiere(erzwingen=True)
         finally:
             self._bereich_sperre = False

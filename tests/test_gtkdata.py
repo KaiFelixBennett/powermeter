@@ -149,14 +149,29 @@ def test_fremdes_CSV_Format_wird_sichtbar(tmp_path):
     assert any("unbekanntes Format" in f for f in a["fehler"])
 
 
-def test_Bereichsschalter_kennen_keine_Rueckkopplung():
-    """Früher: Schalter an "toggled" + manuelles set_active = Hin-und-her bis zum
+def test_Bereichsschalter_keine_Rueckkopplung():
+    """Der Schalter, der gerade läuft, ändert nichts – sonst schleift er sich selbst.
 
-    RecursionError (GNOME meldete "powermeter antwortet nicht"). Der Handler hängt
-    an "clicked" und die Sperre umschließt das Nachziehen, also bleibt es bei genau
-    einem Lesevorgang - auch wenn jemand die Handlung erneut ausloest.
+    Früher hingen die Bereichsknöpfe an "toggled": jedes programmatische set_active
+    löste den nächsten Handler aus, die Knöpfe setzten sich gegenseitig zurück, bis der
+    Stack überlief (GNOME meldete "powermeter antwortet nicht").
     """
-    from powermeter.gtkwidget import Fenster
+    from powermeter.gtkdata import bereich_schalte
+
+    namen = ("h", "tag", "woche")
+    assert bereich_schalte(namen, "woche", gesperrt=False) == {"h": False, "tag": False,
+                                                              "woche": True}
+    assert bereich_schalte(namen, "woche", gesperrt=True) is None   # Rückkopplung: nix tun
+    assert bereich_schalte(namen, "unbekannt", gesperrt=False) is None
+
+
+def test_Bereichsumschaltung_im_Fenster_liest_genau_einmal():
+    """Gleiches noch einmal am Fenster-Handler – braucht GTK4 (nur lokal lauffaehig)."""
+    try:
+        from powermeter.gtkwidget import Fenster
+    except (ImportError, Exception) as e:          # ohne PyGObject/cairo: sichtbar skippen
+        import pytest
+        pytest.skip(f"GTK-Bindung nicht verfuegbar: {e}")
 
     class Schalter:
         def __init__(self):
@@ -182,6 +197,5 @@ def test_Bereichsschalter_kennen_keine_Rueckkopplung():
 
     fake = Fake()
     Fenster.bereich_klick(fake, fake.bereich_knoepfe["woche"], "woche")
-    assert fake.bereich == "woche"
-    assert fake.lesen == 1                        # genau ein Lesevorgang, keine Schleife
+    assert fake.bereich == "woche" and fake.lesen == 1
     assert [k for k, s in fake.bereich_knoepfe.items() if s.aktiv] == ["woche"]

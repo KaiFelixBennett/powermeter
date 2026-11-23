@@ -97,6 +97,19 @@ def _fehler(datadir: Path, jetzt: float) -> list[str]:
         return []
 
 
+def bereich_schalte(namen, gewaehlt: str, gesperrt: bool) -> dict[str, bool] | None:
+    """Which range switch should be on — and none of the feedback.
+
+    Range buttons were wired to "toggled", so every programmatic ``set_active``
+    re-entered the handler, the buttons kept re-activating one another and the stack
+    overflowed (the desktop reported it as "powermeter is not responding"). A switch
+    in progress returns None: do nothing at all, change nothing.
+    """
+    if gesperrt or gewaehlt not in namen:
+        return None
+    return {name: (name == gewaehlt) for name in namen}
+
+
 def lese_anzeige(datadir: Path, cfgdir: Path | None = None, jetzt: float | None = None,
                  bereich: str = "h") -> dict:
     """Zusammenfassung der Messreihe fuer die Anzeige.

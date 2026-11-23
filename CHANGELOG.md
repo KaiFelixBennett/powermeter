@@ -60,6 +60,9 @@ All notable changes to this project are documented here; the format follows
   toothed on the import rhythm. The snapshot now covers the last five minutes, gaps up
   to ten minutes are carried forward in the total (device curves stay raw), and a late
   device shows its last value with the timestamp instead of an em dash.
+- Test suite runs without PyGObject: the range-switch logic lives in `gtkdata`
+  (`bereich_schalte`) and is covered there; the window-level test skips visibly when
+  the GTK bindings are missing (CI has no cairo).
 - Linux display: source colours follow the source name, not its list position; all
   numbers use the German decimal comma; costs moved into the hero card so the device
   list is visible without scrolling.
