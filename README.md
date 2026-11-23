@@ -18,7 +18,12 @@ Windows and Linux, for one machine or several devices at once.**
 A borderless desktop widget shows live watts plus today / total / per-day energy, cost
 and uptime. On Linux there is a second display — a GTK4 window (`powermeter widget`)
 that reads the same CSVs while the collector keeps running headless, so the desktop
-shows power without needing Tk installed. A logger writes one CSV row per minute. A CLI reports, exports and merges
+shows power without needing Tk installed. Clicking a device opens its detail page
+(own curve, sources, daily energy); the hour / 24 h / 7 days buttons redraw the curve.
+A device that reports in bursts — the Windows box pushes every fifteen minutes, an
+import merges the rows — keeps its last value with the timestamp and is carried through
+the total and the curve for gaps up to ten minutes; nothing is ever shown as 0 W when
+it simply was not measured. A logger writes one CSV row per minute. A CLI reports, exports and merges
 the series. No daemon, no database, no inbound ports, no third-party dependencies —
 Python's standard library only.
 
@@ -93,6 +98,9 @@ powermeter devices        # devices, their sources and host binding
 powermeter autostart --enable             # start at login (Run key / .desktop file)
 powermeter widget                # Linux display (GTK4), reads what the collector wrote
 powermeter widget --autostart    # ... at login; --service also restarts it if it dies
+powermeter import <ordner> --device pc --geraet "…"   # merge rows pushed by other hosts
+                                                          # (see systemd/*.example: path
+                                                          #  trigger + 5 min timer)
 ```
 
 ## Usage

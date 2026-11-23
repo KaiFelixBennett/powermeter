@@ -137,7 +137,7 @@ def cmd_widget(core: Core, args) -> int:
               "GTK4/PyGObject fehlt. Unter Windows nutzt powermeter das Tk-Widget "
               "(`powermeter run`).", flush=True)
         return 2
-    return run_widget(core.paths)
+    return run_widget(core.paths, detail=args.detail or "", bereich=args.bereich)
 
 
 def cmd_run(core: Core, args) -> int:
@@ -358,6 +358,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-autostart", action="store_true", help="Autostart der Anzeige entfernen")
     p.add_argument("--service", action="store_true", help="Anzeige als systemd-Userdienst ( Restart, immer sichtbar )")
     p.add_argument("--no-service", action="store_true", help="Anzeige-Dienst entfernen")
+    p.add_argument("--detail", metavar="GERAET", help="direkt die Detailseite dieses Geraets oeffnen")
+    p.add_argument("--bereich", choices=("h", "tag", "woche"), default="h",
+                   help="Zeitfenster der Kurve beim Start (h=Stunde, tag=24 h, woche=7 Tage)")
     p.set_defaults(fn=cmd_widget)
 
     p = sub.add_parser("autostart", help="start the widget at login")

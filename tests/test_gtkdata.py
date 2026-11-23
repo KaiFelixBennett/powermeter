@@ -39,24 +39,44 @@ def _umgebung(tmp_path, monat=MONAT, devices=DEVICES):
     return daten, cfg
 
 
-def test_geraet_ohne_zeile_in_der_neuesten_minute_zahlt_nicht_zu_jetzt(tmp_path):
+def test_Momentaufnahme_ueber_die_letzten_fuenf_Minuten(tmp_path):
+    """Wer in den letzten fuenf Minuten gemessen hat, zaehlt – der Rest nicht.
+
+    Der Windows-Rechner liefert in Schwueben (Plan + Import). Ihn bei jeder
+    Importlücke auf 0 W fallen zu lassen, waere erfundene Sparsamkeit.
+    """
     daten, cfg = _umgebung(tmp_path)
     a = lese_anzeige(daten, cfg, jetzt=JETZT)
     pc = [g for g in a["geraete"] if g["id"] == "pc"][0]
     cach = [g for g in a["geraete"] if g["id"] == "cachyos-ai"][0]
-    assert cach["aktuell"] is True and pc["aktuell"] is False
-    assert pc["w_aktuell"] == 0.0 and pc["minuten_alt"] == 1.0
-    assert a["gesamt"]["w_aktuell"] == 200.0         # nicht 200 + 60 aus einer aelteren Minute
-    assert dict(a["anteile"])["cpu"] == 80.0         # pc's cpu von 07:01 nicht mitgezählt
+    assert pc["minuten_alt"] == 1.0 and pc["aktuell"] is True
+    assert pc["w_aktuell"] == 60.0 and cach["w_aktuell"] == 200.0
+    assert a["gesamt"]["w_aktuell"] == 260.0         # 200 + 60, pc von 07:01
+    assert dict(a["anteile"])["cpu"] == 140.0
 
 
-def test_anzeige_summiert_letzte_minute_und_kurve(tmp_path):
+def test_Geraet_mit_Zwölf_Minuten_Stille_zaehlt_nicht_mehr(tmp_path):
+    daten, cfg = _umgebung(tmp_path)
+    (daten / "2026-11.csv").write_text(
+        MONAT.replace("2026-11-23 07:01,pc,cpu,60,60\n", "").replace(
+            "2026-11-23 07:00,pc,cpu,60,50\n", "2026-11-23 06:49,pc,cpu,60,50\n"),
+        encoding="utf-8")
+    a = lese_anzeige(daten, cfg, jetzt=JETZT)
+    pc = [g for g in a["geraete"] if g["id"] == "pc"][0]
+    assert pc["minuten_alt"] == 13.0 and pc["aktuell"] is False
+    assert a["gesamt"]["w_aktuell"] == 200.0
+    assert dict(a["anteile"]).get("cpu", 0.0) == 80.0     # nur cachyos' cpu
+
+
+def test_Kosten_Tageswerte_und_Kurve_der_Summe(tmp_path):
     daten, cfg = _umgebung(tmp_path)
     a = lese_anzeige(daten, cfg, jetzt=JETZT)
-    # letzte Minute 07:02: 80 + 120 (pc hat dort keine Zeile)
-    assert a["gesamt"]["w_aktuell"] == 200.0
-    assert a["verlauf"] == [450.0, 460.0, 200.0]
-    assert a["tag"] == {"spitze": 460.0, "tief": 200.0, "mittel": 370.0, "minuten": 3}
+    # 07:02: cachyos 80+120, pc von 07:01 wird bis 07:02 weitergezählt (+60)
+    assert a["gesamt"]["w_aktuell"] == 260.0
+    assert a["verlauf"] == [450.0, 460.0, 260.0]   # pc wird ueber die Lücke weitergezählt
+    # tag rechnet auf der ueberbrueckten Summe: 07:02 ist 200 + 60 (pc weitergezaehlt)
+    assert a["tag"] == {"spitze": 460.0, "tief": 260.0, "mittel": 390.0, "minuten": 3,
+                        "tage": [("2026-11-23", 18.5)], "wh_tag": 18.5}
     assert a["zeit_letzte"] == "2026-11-23 07:02"
     assert a["alt_s"] == 120.0
     assert a["veraltet"] is False
@@ -69,7 +89,8 @@ def test_anteile_kennen_die_Bezeichnung_aus_devices_json(tmp_path):
     assert "GPU Radeon (tokdeck)" in namen          # http ist nicht „http“
     assert "cpu" in namen
     watt = dict(a["anteile"])
-    assert watt["cpu"] == 80.0 and watt["GPU Radeon (tokdeck)"] == 120.0
+    # pc wurde 07:01 gemessen und zaehlt bis 07:02 weiter: cpu = 80 + 60
+    assert watt["cpu"] == 140.0 and watt["GPU Radeon (tokdeck)"] == 120.0
 
 
 def test_mehrdeutige_Quelle_bleibt_bei_ihrem_Typ(tmp_path):
@@ -89,6 +110,20 @@ def test_kosten_und_Summen_ueber_alle_Tage(tmp_path):
     assert abs(ges["wh_gesamt"] - 18.5) < 0.01
     assert abs(ges["wh_heute"] - 18.5) < 0.01
     assert abs(ges["ct_heute"] - 0.555) < 0.01
+
+
+def test_bereiche_und_Geraetekurven(tmp_path):
+    daten, cfg = _umgebung(tmp_path)
+    n = lese_anzeige(daten, cfg, jetzt=JETZT, bereich="h")
+    t = lese_anzeige(daten, cfg, jetzt=JETZT, bereich="woche")
+    assert n["bereich_text"] == "letzte Stunde" and t["bereich_text"] == "letzte 7 Tage"
+    pc = [g for g in n["geraete"] if g["id"] == "pc"][0]
+    assert pc["verlauf"] == [50.0, 60.0]                     # eigene Kurve bleibt roh
+    # 60-Minuten-Kisten verschmelzen beide Minuten zu einem Mittelwert
+    assert [g for g in t["geraete"] if g["id"] == "pc"][0]["verlauf"] == [55.0]
+    assert pc["tage"] == [("2026-11-23", 1.83)]              # (50+60)*60/3600 Wh
+    # unbekannte Bereichsangabe faellt zur Standardstunde zurueck
+    assert lese_anzeige(daten, cfg, jetzt=JETZT, bereich="quatsch")["bereich"] == "h"
 
 
 def test_veraltete_Messreihe_sagt_es_klar(tmp_path):
@@ -112,3 +147,41 @@ def test_fremdes_CSV_Format_wird_sichtbar(tmp_path):
     daten, cfg = _umgebung(tmp_path, monat="zeit,sekunden,cpu_w\n2026-11-23 07:00,60,80\n")
     a = lese_anzeige(daten, cfg, jetzt=JETZT)
     assert any("unbekanntes Format" in f for f in a["fehler"])
+
+
+def test_Bereichsschalter_kennen_keine_Rueckkopplung():
+    """Früher: Schalter an "toggled" + manuelles set_active = Hin-und-her bis zum
+
+    RecursionError (GNOME meldete "powermeter antwortet nicht"). Der Handler hängt
+    an "clicked" und die Sperre umschließt das Nachziehen, also bleibt es bei genau
+    einem Lesevorgang - auch wenn jemand die Handlung erneut ausloest.
+    """
+    from powermeter.gtkwidget import Fenster
+
+    class Schalter:
+        def __init__(self):
+            self.aktiv = False
+
+        def set_active(self, wert):
+            self.aktiv = bool(wert)
+
+    class Fake:
+        bereich = "h"
+        _bereich_sperre = False
+        lesen = 0
+        sturm = 0
+
+        def __init__(self):
+            self.bereich_knoepfe = {w: Schalter() for w in ("h", "tag", "woche")}
+
+        def aktualisiere(self, erzwingen=False):
+            self.lesen += 1
+            self.sturm += 1
+            if self.sturm < 40:     # Signal-Sturm: Handler fällt sofort wieder herein
+                Fenster.bereich_klick(self, self.bereich_knoepfe["h"], "woche")
+
+    fake = Fake()
+    Fenster.bereich_klick(fake, fake.bereich_knoepfe["woche"], "woche")
+    assert fake.bereich == "woche"
+    assert fake.lesen == 1                        # genau ein Lesevorgang, keine Schleife
+    assert [k for k, s in fake.bereich_knoepfe.items() if s.aktiv] == ["woche"]

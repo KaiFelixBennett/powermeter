@@ -1,0 +1,13 @@
+# User unit: run the import as soon as a pushed CSV lands. Without this, rows from
+# another host wait for the timer; Kai's Windows box pushes every 15 minutes, so a
+# slow merge made the second machine look idle in the display.
+# One PathModified per host directory (inotify watches directories, not subtrees).
+[Unit]
+Description=merge powermeter imports as soon as a CSV arrives
+
+[Path]
+PathModified=%h/.local/share/powermeter-import
+PathModified=%h/.local/share/powermeter-import/kaisgamingdesk
+
+[Install]
+WantedBy=timers.target
