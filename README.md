@@ -16,16 +16,11 @@ Windows and Linux, for one machine or several devices at once.**
 | Operating systems | Windows 10/11, Linux (incl. WSL2) |
 
 A borderless desktop widget shows live watts plus today / total / per-day energy, cost
-and uptime. On Linux there is a second display — a GTK4 window (`powermeter widget`)
-that reads the same CSVs while the collector keeps running headless, so the desktop
-shows power without needing Tk installed. Clicking a device opens its detail page
-(own curve, sources, daily energy); the hour / 24 h / 7 days buttons redraw the curve.
-A device that reports in bursts — the Windows box pushes every fifteen minutes, an
-import merges the rows — keeps its last value with the timestamp and is carried through
-the total and the curve for gaps up to ten minutes; nothing is ever shown as 0 W when
-it simply was not measured. A logger writes one CSV row per minute. A CLI reports, exports and merges
-the series. No daemon, no database, no inbound ports, no third-party dependencies —
-Python's standard library only.
+and uptime. On Linux there is a second display, `powermeter widget`: a GTK4 window that
+reads the same CSVs while the collector keeps running headless, so the desktop shows
+power without Tk installed. A logger writes one CSV row per minute, and a CLI reports,
+exports and merges the series. No daemon, no database, no inbound ports, no
+third-party dependencies — Python's standard library only.
 
 ![Widget, one device (compact)](docs/images/widget-compact.png)
 ![Widget, two devices](docs/images/widget-two-devices.png)
@@ -33,6 +28,14 @@ Python's standard library only.
 *Two configurations of the same widget on Windows 11: one device in compact mode, two
  devices with the detail table. The big number is the **live** wall-plug wattage; the
  table below reports averages over the measured time, today / total / per measured day.*
+
+![The Linux display: current watts, trend against five minutes ago, the last hour as a curve, hour / 24 h / 7 days, cost, per-source shares and one row per device with its own mini curve](docs/images/widget-linux.png)
+
+*The Linux display (`powermeter widget`, GTK4/Libadwaita) on GNOME: current total, trend
+ against five minutes ago, the curve of the selected range (hour / 24 h / 7 days), cost,
+ per-source shares and one row per device. Clicking a device opens its detail page —
+ its own curve, its sources, its daily energy — and back. Screenshot from the machine
+ this README was written on.*
 
 ## Why
 
@@ -47,9 +50,13 @@ CSV you can grep, and lets several machines report into one folder.
 - **Live widget, no window chrome**: always-on-top, draggable, click-through friendly;
   compact two-line mode for one device, full table for several.
 - **Display and collector can be separate processes**: `powermeter widget` (Linux,
-  GTK4/Libadwaita) draws the last hour as a curve, per-source shares and one row per
-  device, and reads only — the measuring stays a `--headless` systemd service. A device
-  with no row in the newest minute shows `—`, never a made-up 0 W.
+  GTK4/Libadwaita) draws the selected range (hour / 24 h / 7 days) as a curve, per-source
+  shares and one row per device with a mini curve; a click opens the device's detail
+  page. It reads only — the measuring stays a `--headless` systemd service.
+- **No invented zeros**: the current figure counts devices measured within the last five
+  minutes; a device that reports in bursts (rows imported from another host) keeps its
+  last value **with the timestamp**, and the total carries gaps up to ten minutes instead
+  of saw-toothing on the import rhythm. Where nothing was measured the display shows `—`.
 - **Per-device model**: each device has its own sources, PSU efficiency and (optionally)
   its own tariff — a desktop, a home server and a console measured on different boxes
   add up correctly.
@@ -97,10 +104,12 @@ powermeter scan           # which sources are available on this machine
 powermeter devices        # devices, their sources and host binding
 powermeter autostart --enable             # start at login (Run key / .desktop file)
 powermeter widget                # Linux display (GTK4), reads what the collector wrote
+powermeter widget --bereich woche   # start on the 7-day curve (h | tag | woche)
+powermeter widget --detail pc    # open one device's detail page directly
 powermeter widget --autostart    # ... at login; --service also restarts it if it dies
-powermeter import <ordner> --device pc --geraet "…"   # merge rows pushed by other hosts
-                                                          # (see systemd/*.example: path
-                                                          #  trigger + 5 min timer)
+powermeter import <folder> --device pc --geraet "Gaming Desk"
+                                 # merge rows pushed in by another host (see
+                                 # systemd/*.example: path trigger + 5 min timer)
 ```
 
 ## Usage
@@ -230,6 +239,13 @@ everything, pick a collector:
 Keep device ids unique per machine; `sync` warns if the same id exists on both hosts.
 Set `POWERMETER_HOSTNAME` when a VM copies its host's name (WSL2 does).
 
+**Keeping the collector fresh.** If the other machine pushes files instead of being
+pulled (a scheduled task copying CSVs over SSH), merge them as soon as they land: the
+`systemd/powermeter-import.path.example` unit reacts to the file arriving, and
+`powermeter-import.timer.example` runs the same service every five minutes as a
+backstop. Without the path unit a fifteen-minute push waits on a fifteen-minute timer,
+which makes the second machine look idle in the display.
+
 ## Platform support
 
 | Source | Windows 10/11 | Linux | macOS |
@@ -250,7 +266,7 @@ mentioned in the screenshots; ⚠️/❌ are honest gaps, pull requests welcome.
 ## Development
 
 ```bash
-python3 -m pytest -q          # 22 tests, no network, no admin rights
+python3 -m pytest -q          # 35 tests, no network, no admin rights
 ```
 
 CI runs that suite on `windows-latest` (Python 3.9 and 3.12) and `ubuntu-latest`
@@ -267,6 +283,8 @@ CI runs that suite on `windows-latest` (Python 3.9 and 3.12) and `ubuntu-latest`
 | WSL2 measures as the Windows host | `export POWERMETER_HOSTNAME=linuxbox` |
 | Widget missing under GNOME/KDE | the window is a borderless top-level; look for it in the window list, or run `powermeter run --headless` |
 | Nothing happens when starting twice | one logger per data folder is enforced; use separate `--data` folders |
+| The Linux display closes itself when a button is clicked | fixed in the current version: the range buttons were wired to `toggled` and re-activated each other until the stack overflowed (`RecursionError`, the desktop reports it as "is not responding") |
+| The second machine shows `—` or is missing from the total | its rows have not been merged yet — see the import path/timer units above; a device measured more than five minutes ago is deliberately not counted as "now" |
 
 ## Limitations
 

@@ -63,6 +63,8 @@ All notable changes to this project are documented here; the format follows
 - Test suite runs without PyGObject: the range-switch logic lives in `gtkdata`
   (`bereich_schalte`) and is covered there; the window-level test skips visibly when
   the GTK bindings are missing (CI has no cairo).
+- Linux display: the unit "W" now shares the digits' baseline instead of being pushed
+  down by hand, so `450 W` reads as one figure rather than number plus footnote.
 - Linux display: source colours follow the source name, not its list position; all
   numbers use the German decimal comma; costs moved into the hero card so the device
   list is visible without scrolling.
