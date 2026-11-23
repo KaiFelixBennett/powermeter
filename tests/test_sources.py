@@ -112,8 +112,18 @@ def fake_sysfs(tmp_path):
 
 @pytest.mark.skipif(__import__("powermeter.util", fromlist=["x"]).IS_WINDOWS,
                    reason="sysfs-Pfade mit Doppelpunkt sind auf Windows nicht anlegbar")
-def test_rapl_mit_gefaelschter_sysfs_ablage(fake_sysfs):
+def test_rapl_mit_gefaelschter_sysfs_ablage(fake_sysfs, monkeypatch):
+    """Watt aus Zaehlerdifferenz / Zeitspanne - mit **gesetzter Uhr**.
+
+    Der Test schob frueher `prev_t` um 1 s zurueck und verglich dann gegen die echte
+    Laufzeit der Funktion: auf langsamen CI-Runnern waren daraus 1,008 s geworden,
+    0,595 W statt 0,6 W - der Test war wanduhrabhaengig und flaky.
+    """
+    from powermeter.sources import linux
     from powermeter.sources.linux import PowercapRapl
+
+    uhr = [1000.0]
+    monkeypatch.setattr(linux.time, "time", lambda: uhr[0])
 
     q = PowercapRapl(spec("rapl", sysfs=str(fake_sysfs)))
     assert "package-0" in q.label
@@ -123,9 +133,11 @@ def test_rapl_mit_gefaelschter_sysfs_ablage(fake_sysfs):
     q2 = PowercapRapl(spec("rapl", sysfs=str(fake_sysfs)))
     assert q2.domains[0][2].prev_v is None          # Unterdomain intel-rapl:0:0 nicht doppelt
     assert len(q.domains) == 1
-    q.domains[0][2].prev_t -= 1.0               # 1 s spaeter, Zaehlerstand +0,6 J
+    uhr[0] += 1.0                               # genau 1 s spaeter, Zaehler +0,6 J
     p = q.read()
-    assert p == pytest.approx(600000 * 1e-6 / 1.0, abs=1e-3)
+    assert p == pytest.approx(0.6, abs=1e-9)
+    uhr[0] += 0.5                               # 0,5 s spaeter, keine Zaehlerbewegung
+    assert q.read() == pytest.approx(0.0, abs=1e-9)
 
 
 def test_rapl_ueberlauf_zaehler(fake_sysfs):
