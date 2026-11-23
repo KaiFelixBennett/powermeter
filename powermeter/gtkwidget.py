@@ -37,7 +37,10 @@ pm-karte, .pm-karte { background-color: alpha(#ffffff, 0.035); border: 1px solid
 pm-knopf { border-radius: 12px; padding: 4px 10px; }
 .pm-hero { font-family: monospace; font-size: 36pt; font-weight: 800; }
 .pm-hero-klein { font-family: monospace; font-size: 24pt; font-weight: 800; }
-.pm-einheit { font-size: 13pt; font-weight: 600; color: alpha(currentColor, 0.5); }
+.pm-einheit { font-family: monospace; font-size: 16pt; font-weight: 700;
+              color: alpha(currentColor, 0.55); }
+.pm-einheit-klein { font-family: monospace; font-size: 12pt; font-weight: 700;
+                    color: alpha(currentColor, 0.55); }
 .pm-marke { font-size: 9pt; font-weight: 800; color: alpha(currentColor, 0.42); }
 .pm-zeile { font-size: 11.5pt; font-weight: 600; }
 .pm-zahl { font-family: monospace; font-weight: 700; font-size: 11.5pt; }
@@ -302,10 +305,12 @@ class Fenster(Adw.ApplicationWindow):
         roll.set_child(spalte)
 
         karte = _karte()
-        self.hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        # Zahl und Einheit teilten sich die Grundlinie: ein nach Augenmass
+        # heruntergeschobenes "W" wirkt wie ein zweites, kleineres Element.
+        self.hero.set_baseline_position(Gtk.BaselinePosition.CENTER)
         self.hero_zahl = Gtk.Label(label="–", css_classes=["pm-hero"], xalign=0)
-        self.hero_einheit = Gtk.Label(label="W", css_classes=["pm-einheit"], xalign=0,
-                                      valign=Gtk.Align.END, margin_bottom=6)
+        self.hero_einheit = Gtk.Label(label="W", css_classes=["pm-einheit"], xalign=0)
         self.hero_chip = _chip("–", 0)
         abstand = Gtk.Box()
         abstand.set_hexpand(True)
@@ -387,10 +392,10 @@ class Fenster(Adw.ApplicationWindow):
         spalte.append(oben)
 
         karte = _karte()
-        self.detail_hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.detail_hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self.detail_hero.set_baseline_position(Gtk.BaselinePosition.CENTER)
         self.detail_zahl = Gtk.Label(label="–", css_classes=["pm-hero-klein"], xalign=0)
-        self.detail_einheit = Gtk.Label(label="W", css_classes=["pm-einheit"], xalign=0,
-                                        valign=Gtk.Align.END, margin_bottom=4)
+        self.detail_einheit = Gtk.Label(label="W", css_classes=["pm-einheit-klein"], xalign=0)
         self.detail_chip = _chip("–", 0)
         self.detail_hero.append(self.detail_zahl)
         self.detail_hero.append(self.detail_einheit)
