@@ -7,6 +7,14 @@ All notable changes to this project are documented here; the format follows
 ## [Unreleased]
 
 ### Added
+### Added
+- `tools/screenshot_linux.py`: reproducible picture series of the Linux display. It
+  switches views through the display's own D-Bus actions (`bereich`, `detail`, `zurueck`,
+  `marke`, `groesse`), records the screen through the XDG portal and takes the window
+  frame from the display's own marker ring, so a picture is the whole window rather than
+  a hand-made crop; `--komponiere` lays several views side by side at one height.
+  New README pictures: overview (hour), overview (7 days), device detail, and all three
+  as one sheet.
 - Linux display without Tk: `powermeter widget` (GTK4/Libadwaita) shows the last hour
   as a curve, today's peak / mean / low, per-source shares as coloured bars and one row
   per device. It reads the collector's CSVs only, so the collector can stay a headless
@@ -51,6 +59,12 @@ All notable changes to this project are documented here; the format follows
   (`cpu_w,nvidia_w,amd_w,rest_w,…`) is still read and migrated.
 
 ### Fixed
+### Fixed
+- The Linux display no longer changes its own size underneath the user: the scroll areas
+  now carry a fixed content size, so the five-second refresh and the switch between
+  overview and detail stop resizing the window (measured jumping between 524×764 and
+  640×974). The remembered size in `widget.json` is the window's real size, not the
+  requested one, and the marker ring fills the window instead of sitting in its middle.
 - Test suite is no longer wall-clock dependent: the RAPL watts test shifted its previous
   timestamp by one second and compared against the function's real runtime, so on a slow
   runner 1.008 s gave 0.595 W and the run failed. The clock is now set explicitly, and the

@@ -29,13 +29,20 @@ third-party dependencies — Python's standard library only.
  devices with the detail table. The big number is the **live** wall-plug wattage; the
  table below reports averages over the measured time, today / total / per measured day.*
 
-![The Linux display: current watts, trend against five minutes ago, the last hour as a curve, hour / 24 h / 7 days, cost, per-source shares and one row per device with its own mini curve](docs/images/widget-linux.png)
+![The Linux display, three views side by side: overview over the last hour, overview over seven days, and one device's detail page](docs/images/widget-linux-ansichten.png)
 
-*The Linux display (`powermeter widget`, GTK4/Libadwaita) on GNOME: current total, trend
- against five minutes ago, the curve of the selected range (hour / 24 h / 7 days), cost,
- per-source shares and one row per device. Clicking a device opens its detail page —
- its own curve, its sources, its daily energy — and back. Screenshot from the machine
- this README was written on.*
+*The Linux display (`powermeter widget`, GTK4/Libadwaita) on GNOME, three views: total
+ over the last hour, the same over seven days (with average kWh/day), and the detail page
+ of one imported device. Every view shows the current total, the trend against five
+ minutes ago, the curve of the selected range, cost, per-source shares and one row per
+ device with its own mini curve; clicking a device opens its detail page and `Esc` or the
+ back arrow returns. Live data from the machine this README was written on — the Windows
+ PC reports in bursts (import), so its row shows the last measured value with its time
+ instead of pretending a gap is 0 W.*
+
+| hour range | 7 days | device detail |
+|---|---|---|
+| [![Overview, last hour](docs/images/widget-linux-uebersicht.png)](docs/images/widget-linux-uebersicht.png) | [![Overview, seven days](docs/images/widget-linux-7-tage.png)](docs/images/widget-linux-7-tage.png) | [![Device detail](docs/images/widget-linux-detail.png)](docs/images/widget-linux-detail.png) |
 
 ## Why
 
@@ -272,6 +279,23 @@ python3 -m pytest -q          # 35 tests, no network, no admin rights
 CI runs that suite on `windows-latest` (Python 3.9 and 3.12) and `ubuntu-latest`
 (Python 3.12). See [CONTRIBUTING.md](CONTRIBUTING.md) and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+### Pictures are reproducible
+
+The Linux screenshots are not hand-drawn crops. `tools/screenshot_linux.py` drives the
+running display through its own D-Bus actions (`bereich`, `detail`, `zurueck`, `marke`,
+`groesse`), records the whole screen through the XDG portal (Wayland tells a window
+neither its position nor its size, and the portal has no single-window mode), and takes
+the window frame from the display's own 6 px marker ring — so the crop is the whole
+window instead of a guess from desktop colours. `--komponiere` lays several views side by
+side at one height.
+
+```bash
+python3 tools/screenshot_linux.py --zurueck --bereich h --aus docs/images/a.png
+python3 tools/screenshot_linux.py --detail pc           --aus docs/images/b.png
+python3 tools/screenshot_linux.py --komponiere docs/images/a.png docs/images/b.png \
+        --aus docs/images/serie.png --hoehe 700
+```
 
 ## Troubleshooting
 

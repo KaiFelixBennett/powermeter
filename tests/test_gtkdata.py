@@ -196,6 +196,9 @@ def test_Bereichsumschaltung_im_Fenster_liest_genau_einmal():
                 Fenster.bereich_klick(self, self.bereich_knoepfe["h"], "woche")
 
     fake = Fake()
+    # der Fake bekommt beide echten Methoden, damit der Klickweg genau wie im
+    # Fenster abläuft (Klick -> setzen -> Nachziehen)
+    fake.bereich_setzen = lambda wert: Fenster.bereich_setzen(fake, wert)
     Fenster.bereich_klick(fake, fake.bereich_knoepfe["woche"], "woche")
     assert fake.bereich == "woche" and fake.lesen == 1
     assert [k for k, s in fake.bereich_knoepfe.items() if s.aktiv] == ["woche"]
