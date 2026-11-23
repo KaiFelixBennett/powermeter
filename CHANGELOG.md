@@ -51,6 +51,10 @@ All notable changes to this project are documented here; the format follows
   (`cpu_w,nvidia_w,amd_w,rest_w,…`) is still read and migrated.
 
 ### Fixed
+- Test suite is no longer wall-clock dependent: the RAPL watts test shifted its previous
+  timestamp by one second and compared against the function's real runtime, so on a slow
+  runner 1.008 s gave 0.595 W and the run failed. The clock is now set explicitly, and the
+  test also checks that an unchanged counter reads 0 W.
 - Linux display: the range buttons were wired to `toggled` and re-activated each other,
   so one click recursed until the stack overflowed (GNOME reported it as
   "powermeter is not responding"). Now `clicked` plus a re-entrancy guard, with a
