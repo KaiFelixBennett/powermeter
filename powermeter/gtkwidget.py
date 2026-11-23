@@ -24,6 +24,9 @@ from .gtkdata import BEREICHE, bereich_schalte, lese_anzeige  # noqa: E402
 APP_ID = "de.powermeter.Widget"
 TICK_S = 5
 
+# Festes Maß der Scroll-Fläche (430 war zu schmal: die Zahlenkolonne wurde abgeschnitten).
+BREITE, HOEHE = 520, 700
+
 FARBEN = ["#5ad1c8", "#ffc94d", "#8ea2ff", "#7ee787", "#ff8f6b", "#c98bff"]
 GERAET_FARBE = "#7d8ea8"
 AKZENT = (0.35, 0.82, 0.78)
@@ -257,6 +260,7 @@ class Fenster(Adw.ApplicationWindow):
         self.anzeige: dict = {}
         self.bereich = bereich if bereich in BEREICHE else "h"
         self._stempel = 0.0
+        self._feste_groesse: tuple[int, int] | None = None
         self._alter = 0.0
         self._tween_zaehler = None
 
@@ -281,14 +285,38 @@ class Fenster(Adw.ApplicationWindow):
 
         self.seiten = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
                                 transition_duration=220)
+        # Absichtlich *homogen* (Standard): der Stack mißt die größte Seite, damit das
+        # Fenster bei Ansichtwechsel dieselbe Größe behält. Nicht-homogen ließ es pro
+        # Ansicht wachsen und schrumpfen (gemessen 470×774 gegen 620×958) — unruhig auf
+        # dem Desktop und unbrauchbar für gleichmäßige Bildserien.
+        self.seiten.set_size_request(430, 640)
         self.werkzeug.set_content(self.seiten)
-        self.set_content(self.werkzeug)
+        # Screenshot-Marke: ein selbst gezeichneter Ring am Fensterrand. Kein CSS und
+        # kein Flächenfüllen — halb durchsichtige Karten übernahmen die Farbe sonst und
+        # gaben sie nach dem Abschalten nicht sauber zurück (5 % Magenta im Bild).
+        self._marke_an = False
+        self.marke_flaeche = Gtk.DrawingArea()
+        self.marke_flaeche.set_draw_func(self._zeichne_marke)
+        self.marke_flaeche.set_can_target(False)
+        # Der Overlay gibt einem Kind sonst nur dessen natürliche Größe — der Ring müßte
+        # dann mitten im Fenster sitzen. Füllen ist hier Pflicht.
+        self.marke_flaeche.set_halign(Gtk.Align.FILL)
+        self.marke_flaeche.set_valign(Gtk.Align.FILL)
+        grundflaeche = Gtk.Overlay()
+        grundflaeche.set_child(self.werkzeug)
+        grundflaeche.add_overlay(self.marke_flaeche)
+        self.set_content(grundflaeche)
         self.seiten.set_vexpand(True)
         self._bau_ueberblick()
         self._bau_details()
 
-        self.set_default_size(*self._groesse())
-        self.connect("unmap", self._groesse_merken)
+        self._feste_groesse = self._groesse()
+        self.set_default_size(*self._feste_groesse)
+        # Wer von Hand zieht, bestimmt das Maß: GTK4 hält die gewünschte Größe bei
+        # Benutzerresize aktuell, also hier mitlesen und nicht übergehen.
+        self.connect("notify::default-width", lambda *_: self._groesse_uebernehmen())
+        self.connect("notify::default-height", lambda *_: self._groesse_uebernehmen())
+        self.connect("unmap", self.groesse_merken)
         druecker = Gtk.EventControllerKey()
         druecker.connect("key-pressed", self._taste)
         self.add_controller(druecker)
@@ -296,7 +324,15 @@ class Fenster(Adw.ApplicationWindow):
 
     # ------------------------------------------------------------------ Aufbau
     def _bau_ueberblick(self) -> None:
-        roll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        roll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+                                  vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
+        # Feste Maße der Scroll-Fläche, nicht die des Inhalts: sonst verhandelt GTK die
+        # Fenstergröße bei jedem five-Sekunden-Nachlauf und bei jedem Seitenwechsel neu
+        # (gemessen 524×764 gegen 640×974, springend). Inhalt, der nicht paßt, scrollt.
+        roll.set_min_content_width(BREITE)
+        roll.set_min_content_height(HOEHE)
+        roll.set_propagate_natural_width(False)
+        roll.set_propagate_natural_height(False)
         spalte = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         spalte.set_margin_top(10)
         spalte.set_margin_bottom(14)
@@ -319,6 +355,9 @@ class Fenster(Adw.ApplicationWindow):
         self.hero.append(abstand)
         self.hero.append(self.hero_chip)
         self.hero_unten = Gtk.Label(label="", css_classes=["pm-klein"], xalign=0, wrap=True)
+        # Natürliche Breite darf nicht die Fensterbreite diktieren: sonst wächst das
+        # Fenster beim Ansichtwechsel (lange Fließtextzeile) und geht nie zurück.
+        self.hero_unten.set_natural_wrap_mode(Gtk.NaturalWrapMode.WORD)
         self.kurve = Kurve(hoehe=78)
         karte.append(self.hero)
         karte.append(self.hero_unten)
@@ -373,7 +412,15 @@ class Fenster(Adw.ApplicationWindow):
         self.seiten.add_named(roll, "ueberblick")
 
     def _bau_details(self) -> None:
-        roll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        roll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+                                  vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
+        # Feste Maße der Scroll-Fläche, nicht die des Inhalts: sonst verhandelt GTK die
+        # Fenstergröße bei jedem five-Sekunden-Nachlauf und bei jedem Seitenwechsel neu
+        # (gemessen 524×764 gegen 640×974, springend). Inhalt, der nicht paßt, scrollt.
+        roll.set_min_content_width(430)
+        roll.set_min_content_height(660)
+        roll.set_propagate_natural_width(False)
+        roll.set_propagate_natural_height(False)
         spalte = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         spalte.set_margin_top(10)
         spalte.set_margin_bottom(14)
@@ -401,6 +448,7 @@ class Fenster(Adw.ApplicationWindow):
         self.detail_hero.append(self.detail_einheit)
         self.detail_hero.append(self.detail_chip)
         self.detail_unten = Gtk.Label(label="", css_classes=["pm-klein"], xalign=0, wrap=True)
+        self.detail_unten.set_natural_wrap_mode(Gtk.NaturalWrapMode.WORD)
         self.detail_kurve = Kurve(hoehe=76)
         karte.append(self.detail_hero)
         karte.append(self.detail_unten)
@@ -436,12 +484,30 @@ class Fenster(Adw.ApplicationWindow):
             return (g[0], g[1])
         return (428, 764)
 
-    def _groesse_merken(self, *_):
+    def marke_setzen(self, an: bool) -> None:
+        """Marke an/aus: der Werkzeuglauf `screenshot_linux.py` vermißt damit den
+        Fensterrahmen, statt Farbe und Geometrie des Desktops raten zu müssen."""
+        self._marke_an = bool(an)
+        self.marke_flaeche.queue_draw()
+
+    def _zeichne_marke(self, _bereich, kr, breite: int, hoehe: int) -> None:
+        if not self._marke_an:
+            return
+        kr.set_source_rgb(1.0, 0.0, 1.0)
+        kr.set_line_width(6.0)
+        kr.rectangle(3.0, 3.0, max(1.0, breite - 6.0), max(1.0, hoehe - 6.0))
+        kr.stroke()
+
+    def groesse_merken(self, *_):
         try:
             import json
-            b = self.get_default_size()
+            groesse = [self.get_width(), self.get_height()]        # die wirkliche Größe,
+            if min(groesse) < 64:                                  # nicht die erbetene
+                b = self.get_default_size()
+                groesse = [b.width, b.height]
+            self._feste_groesse = (int(groesse[0]), int(groesse[1]))
             dat = self._einstellung()
-            dat["groesse"] = [b.width, b.height]
+            dat["groesse"] = list(self._feste_groesse)
             (self.cfg / "widget.json").write_text(json.dumps(dat), encoding="utf-8")
         except (OSError, AttributeError):
             pass
@@ -454,15 +520,46 @@ class Fenster(Adw.ApplicationWindow):
 
     def seite(self, name: str) -> None:
         self.seiten.set_visible_child_name(name)
+        self._groesse_stabil()
+
+    def _groesse_uebernehmen(self) -> None:
+        groesse = (self.get_width(), self.get_height())
+        if min(groesse) < 64:
+            groesse = (self.get_default_size().width, self.get_default_size().height)
+        if min(groesse) >= 64:
+            self._feste_groesse = groesse
+
+    def _groesse_stabil(self) -> None:
+        """Größe halten: ohne das hier verhandelt GTK das Fenster bei jedem der
+        fünfsekündigen Neuläufe und bei jedem Seitenwechsel neu — gemessen sprang es
+        zwischen 524×764 und 640×974 hin und her, sobald sich Textlängen oder Zeilenzahlen
+        änderten. Ein Desktop-Werkzeug neben anderen Fenstern darf nicht springen.
+        """
+        if not self._feste_groesse:
+            return
+        echt = (self.get_width(), self.get_height())
+        if min(echt) >= 64 and echt > self._feste_groesse:
+            self._feste_groesse = echt       # Inhalt braucht mehr Platz: mitnehmen
+        self.set_default_size(*self._feste_groesse)
 
     def bereich_klick(self, knopf, wert: str) -> None:
-        """Bereich wechseln: ein Schalter an, die anderen aus, dann neu rechnen."""
-        zustand = bereich_schalte(self.bereich_knoepfe, wert, self._bereich_sperre)
-        if zustand is None:
+        """Klick auf einen Bereichsknopf."""
+        if self._bereich_sperre:
             return                                  # Rückkopplung: hier nichts tun
         if wert == self.bereich:
             knopf.set_active(True)                  # Klick auf den aktiven Schalter
             return
+        self.bereich_setzen(wert)
+
+    def bereich_setzen(self, wert: str) -> bool:
+        """Bereich setzen: ein Schalter an, die anderen aus, dann neu rechnen.
+
+        Eigener Rumpf, weil auch die D-Bus-Aktion „bereich" (und damit ein
+        Screenshot-Werkzeug) umschalten muss, ohne dass ein Knopf geklickt wird.
+        """
+        zustand = bereich_schalte(self.bereich_knoepfe, wert, self._bereich_sperre)
+        if zustand is None:
+            return False
         self._bereich_sperre = True      # deckt auch das Nachziehen ab: was hier
         try:                             # erneut hereinfällt, darf nicht schleifen
             self.bereich = wert
@@ -471,6 +568,7 @@ class Fenster(Adw.ApplicationWindow):
             self.aktualisiere(erzwingen=True)
         finally:
             self._bereich_sperre = False
+        return True
 
     # ------------------------------------------------------------------ Anzeige
     def _geraet_zeile(self, g: dict, gesamt_w: float) -> Gtk.Widget:
@@ -560,6 +658,7 @@ class Fenster(Adw.ApplicationWindow):
         self._stempel = stempel
         self.anzeige = lese_anzeige(self.daten, self.cfg, bereich=self.bereich)
         self._zeige()
+        self._groesse_stabil()
         return False
 
     def _frischestempel(self):
@@ -675,6 +774,37 @@ class Anwendung(Adw.Application):
             eigenschaft = Gio.SimpleAction.new(name, None)
             eigenschaft.connect("activate", handler)
             self.add_action(eigenschaft)
+        # Aktionen mit Parameter: von außen steuerbar (gapplication action …). Das
+        # macht Screenshots jeder Ansicht reproduzierbar – tools/screenshot_linux.py
+        # schaltet damit Bereich und Detailseite um, statt Knöpfe raten zu müssen.
+        for name, handler in (("bereich", self._aktion_bereich), ("detail", self._aktion_detail),
+                              ("marke", self._aktion_marke), ("groesse", self._aktion_groesse)):
+            eigenschaft = Gio.SimpleAction.new(name, GLib.VariantType("s"))
+            eigenschaft.connect("activate", handler)
+            self.add_action(eigenschaft)
+
+    def _aktion_bereich(self, aktion, parameter):
+        if self.fenster is not None:
+            self.fenster.bereich_setzen(parameter.get_string())
+
+    def _aktion_detail(self, aktion, parameter):
+        if self.fenster is not None:
+            self.fenster.zeige_details(parameter.get_string())
+
+    def _aktion_groesse(self, aktion, parameter):
+        """Fenstergröße setzen („BxH“) — damit Bildserien gleich große Bilder haben."""
+        if self.fenster is None:
+            return
+        try:
+            breite, hoehe = (int(w) for w in parameter.get_string().lower().split("x"))
+        except ValueError:
+            return
+        self.fenster._feste_groesse = (breite, hoehe)
+        self.fenster.set_default_size(breite, hoehe)
+
+    def _aktion_marke(self, aktion, parameter):
+        if self.fenster is not None:
+            self.fenster.marke_setzen(parameter.get_string() == "an")
         anbieter = Gtk.CssProvider()
         anbieter.load_from_data(CSS.encode("utf-8"))
         Gtk.StyleContext.add_provider_for_display(
@@ -687,6 +817,7 @@ class Anwendung(Adw.Application):
             if self.detail_start:      # --detail: direkt auf dieser Geraeteseite oeffnen
                 self.fenster.zeige_details(self.detail_start)
         self.fenster.present()
+        self.fenster.groesse_merken()   # widget.json kennt damit immer die live Größe
 
     def _tick(self):
         try:
