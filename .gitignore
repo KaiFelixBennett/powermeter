@@ -11,3 +11,5 @@ state.json
 .portable
 _scratch-*
 PROGRESS.md
+
+*.egg-info/
