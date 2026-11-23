@@ -19,8 +19,17 @@ from pathlib import Path
 from .store import HEAD
 
 MONAT = ".csv"
-VERLAUF_MINUTEN = 90  # Kurve: gut eine Stunde, damit man Spitzen und Tal sieht
+# Messbereiche: (Anzeigetitel, Minuten pro Kasten, Anzahl Kästen)
+BEREICHE = {"h": ("letzte Stunde", 1, 75), "tag": ("letzte 24 h", 10, 144),
+            "woche": ("letzte 7 Tage", 60, 168)}
+AUSFUELL_MIN = 10   # Lücke bis 10 min überbrücken: Import in Schwüben ist kein Aus-Sprung
+AKTUELL_MIN = 5     # wer in den letzten 5 min gemessen hat, zählt zur Momentaufnahme
+SPAET_S = 150   # eigenste Minute älter als die neueste: verspätet, nicht „kein Messwert"
 VERALTET_S = 900  # ab 15 min ohne Zeile ist die Anzeige eine Luege, wenn sie das nicht sagt
+
+
+def _zeitmarke(minute: int) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(minute * 60))
 
 
 def _json(dic: Path, standard: dict) -> dict:
@@ -88,7 +97,8 @@ def _fehler(datadir: Path, jetzt: float) -> list[str]:
         return []
 
 
-def lese_anzeige(datadir: Path, cfgdir: Path | None = None, jetzt: float | None = None) -> dict:
+def lese_anzeige(datadir: Path, cfgdir: Path | None = None, jetzt: float | None = None,
+                 bereich: str = "h") -> dict:
     """Zusammenfassung der Messreihe fuer die Anzeige.
 
     Nie wirfend: fehlt alles, kommen Nullen plus Hinweis in `fehler`.
@@ -99,6 +109,7 @@ def lese_anzeige(datadir: Path, cfgdir: Path | None = None, jetzt: float | None 
     namen = gerate_namen(cfgdir)
     quellnamen = quellennamen(cfgdir)
     ct_kwh = _preis_ct(cfgdir)
+    bereich = bereich if bereich in BEREICHE else "h"
     heute = time.strftime("%Y-%m-%d", time.localtime(jetzt))
 
     state = _json(datadir / "state.json", {})
@@ -106,6 +117,8 @@ def lese_anzeige(datadir: Path, cfgdir: Path | None = None, jetzt: float | None 
 
     gerate: dict[str, dict] = {}
     minutensumme: dict[str, float] = {}   # zeit -> Watt gesamt (Kurve)
+    minuten_pro_geraet: dict[str, dict[str, float]] = {}  # geraet -> zeit -> Watt
+    wh_pro_tag: dict[str, dict[str, float]] = {}          # geraet -> JJJJ-MM-TT -> Wh
     letzte_zeit = ""
     wh_gesamt = 0.0
     fehler: list[str] = []
@@ -130,6 +143,10 @@ def lese_anzeige(datadir: Path, cfgdir: Path | None = None, jetzt: float | None 
                     except ValueError:
                         continue
                     minutensumme[zeit] = minutensumme.get(zeit, 0.0) + wert
+                    pro_geraet = minuten_pro_geraet.setdefault(geraet, {})
+                    pro_geraet[zeit] = pro_geraet.get(zeit, 0.0) + wert
+                    pro_tag = wh_pro_tag.setdefault(geraet, {})
+                    pro_tag[zeit[:10]] = pro_tag.get(zeit[:10], 0.0) + wh
                     if zeit > letzte_zeit:
                         letzte_zeit = zeit
                     g = gerate.setdefault(geraet, {
@@ -152,25 +169,116 @@ def lese_anzeige(datadir: Path, cfgdir: Path | None = None, jetzt: float | None 
             fehler.append(f"{pfad.name}: {e}")
 
     # „Jetzt“ gilt pro Minute, nicht pro Geraet: wer in der neuesten Minute keine
-    # Zeile hat, tragt nichts bei – sein letzter Wert ist keine Momentaufnahme.
-    aktuell_dabei = [g for g in gerate.values() if g.get("minute") == letzte_zeit]
+    # Zeile hat, tragt nichts zur Momentaufnahme bei. Aber „verspaetet“ (Import alle
+    # paar Minuten) ist etwas anderes als „kein Messwert“ – das ist zu zeigen.
+    def minuten_alt(g: dict) -> float:
+        if not g.get("zuletzt") or not letzte_zeit:
+            return 1e9
+        try:
+            return (time.mktime(time.strptime(letzte_zeit, "%Y-%m-%d %H:%M"))
+                    - time.mktime(time.strptime(g["zuletzt"], "%Y-%m-%d %H:%M"))) / 60.0
+        except ValueError:
+            return 1e9
+
+    # Zur Momentaufnahme zählen Geraete, die in den letzten Minuten gemessen haben –
+    # ein Rechner, der nur alle paar Minuten liefert, ist damit nicht "aus".
+    aktuell_dabei = [g for g in gerate.values() if minuten_alt(g) <= AKTUELL_MIN]
+    spaetestens = time.mktime(time.strptime(letzte_zeit, "%Y-%m-%d %H:%M")) if letzte_zeit else 0.0
     for g in gerate.values():
+        # Reihenfolge zaehlt: w_aktuell wird unten erst aus quellen berechnet, also
+        # den letzten eigenen Wert hier gleich aus den Quellen holen.
+        g["w_zuletzt"] = round(sum(g["quellen"].values()), 1)
         g["aktuell"] = g in aktuell_dabei
         if not g["aktuell"]:
-            g["quellen"] = {}
+            alt_s = (spaetestens - time.mktime(time.strptime(g["zuletzt"], "%Y-%m-%d %H:%M"))
+                     if g.get("zuletzt") else 1e12)
+            g["verspaetet"] = alt_s <= 3600
+            if not g["verspaetet"]:
+                g["quellen"] = {}
+                g["w_zuletzt"] = 0.0
+        else:
+            g["verspaetet"] = False
+
+    def überbrücken(zeiten: dict[str, float], bis_minute: int | None = None) -> dict[str, float]:
+        """Letzten Wert bis `AUSFUELL_MIN` Minuten weitertragen.
+
+        Ein Rechner, der nur alle paar Minuten liefert (Import vom Windows-Plan),
+        verschwindet sonst in jeder Lücke aus der Gesamtsumme: Kurve und Trend
+        waeren Saegezahn-Artefakte der Uebertragung, nicht des Verbrauchs. Ein
+        echtes Aus bleibt sichtbar – danach endet die Uebertragung.
+        """
+        if not zeiten:
+            return {}
+        gefüllt = {}
+        vorher_min = vorher_w = None
+        for zeit in sorted(zeiten):
+            try:
+                minute = int(time.mktime(time.strptime(zeit, "%Y-%m-%d %H:%M")) // 60)
+            except ValueError:
+                continue
+            if vorher_min is not None and 0 < minute - vorher_min <= AUSFUELL_MIN:
+                for lücke in range(vorher_min + 1, minute):
+                    gefüllt[_zeitmarke(lücke)] = vorher_w
+            gefüllt[zeit] = zeiten[zeit]
+            vorher_min, vorher_w = minute, zeiten[zeit]
+        # Auch nach der letzten eigenen Zeile weiterzaehlen, bis zur neuesten Messung
+        # insgesamt – sonst faellt der Import-Rechner am Kurvenende aus der Summe.
+        if (bis_minute is not None and vorher_min is not None
+                and 0 < bis_minute - vorher_min <= AUSFUELL_MIN):
+            for lücke in range(vorher_min + 1, bis_minute + 1):
+                gefüllt[_zeitmarke(lücke)] = vorher_w
+        return gefüllt
+
+    def kaesten(zeiten: dict[str, float]) -> list[float]:
+        """Zeitreihe in Kisten: 1 / 10 / 60 Minuten pro Punkt, gemittelt.
+
+        Gelochte Minuten (Gerat aus) fehlen in der Teilmenge und werden nicht zu
+        Null-Werten erfunden – die Kurve endet dann frueher.
+        """
+        _, minuten, anzahl = BEREICHE[bereich]
+        kasten: dict[int, list[float]] = {}
+        for zeit, wert in zeiten.items():
+            try:
+                minute = int(time.mktime(time.strptime(zeit, "%Y-%m-%d %H:%M")) // 60)
+            except ValueError:
+                continue
+            kasten.setdefault(minute // minuten, []).append(wert)
+        wenn = sorted(kasten)[-anzahl:]
+        return [round(sum(kasten[k]) / len(kasten[k]), 1) for k in wenn]
 
     # Kurve der letzten Minuten + Tagesrandwerte: Zahlen ohne Verlauf erzaehlen nichts
-    punkte = sorted(minutensumme.items())
+    # ueberbrueckte Reihen: pro Geraet die eigene, gesamt die Summe der ueberbrueckten
+    letzte_minute = (int(time.mktime(time.strptime(letzte_zeit, "%Y-%m-%d %H:%M")) // 60)
+                     if letzte_zeit else None)
+    gefüllt_pro_geraet = {gid: überbrücken(zeiten, letzte_minute)
+                          for gid, zeiten in minuten_pro_geraet.items()}
+    gesamt_gefüllt: dict[str, float] = {}
+    for zeiten in gefüllt_pro_geraet.values():
+        for zeit, wert in zeiten.items():
+            gesamt_gefüllt[zeit] = gesamt_gefüllt.get(zeit, 0.0) + wert
+    punkte = sorted(gesamt_gefüllt.items())
+    for g in gerate.values():
+        # Die eigene Kurve bleibt roh: eine überbrückte Minute wäre eine Annahme.
+        # Nur die Summe wird überbrückt, sonst sägt der Import-Rhythmus durch sie durch.
+        g["verlauf"] = kaesten(minuten_pro_geraet.get(g["id"], {}))
     # Trend gegen vor fuenf Minuten: eine Zahl ohne Richtung ist die halbe Antwort
     rueck = punkte[-6:-5] or punkte[:1]
     trend = round(punkte[-1][1] - rueck[0][1], 1) if punkte else 0.0
     heutige = [(z, w) for z, w in punkte if z[:10] == heute]
-    verlauf = [round(w, 1) for _, w in punkte[-VERLAUF_MINUTEN:]]
+    verlauf = kaesten(gesamt_gefüllt)
+    # Ø pro Tag über alle Geräte: "7 Tage" ohne Energiemaß ist eine halbe Zahl
+    tage_gesamt: dict[str, float] = {}
+    for wh_pro_geraet in wh_pro_tag.values():
+        for datum, wh in wh_pro_geraet.items():
+            tage_gesamt[datum] = tage_gesamt.get(datum, 0.0) + wh
+
     tageswerte = {
         "spitze": round(max((w for _, w in heutige), default=0.0), 1),
         "tief": round(min((w for _, w in heutige), default=0.0), 1),
         "mittel": round(sum(w for _, w in heutige) / len(heutige), 1) if heutige else 0.0,
         "minuten": len(heutige),
+        "tage": sorted((datum, round(wh, 2)) for datum, wh in tage_gesamt.items())[-31:],
+        "wh_tag": round(sum(tage_gesamt.values()) / len(tage_gesamt), 1) if tage_gesamt else 0.0,
     }
     anteile: dict[str, float] = {}
     for g in aktuell_dabei:
@@ -183,13 +291,15 @@ def lese_anzeige(datadir: Path, cfgdir: Path | None = None, jetzt: float | None 
         for quell, watt in sorted(g["quellen"].items(), key=lambda kv: -kv[1]):
             if watt >= 1.0:
                 g.setdefault("quellen_liste", []).append((quell, round(watt, 1)))
-        g["minuten_alt"] = None
+        g["minuten_alt"] = minuten_alt(g) if g.get("zuletzt") and letzte_zeit else None
         if g.get("zuletzt") and letzte_zeit:
             try:
                 g["minuten_alt"] = round((time.mktime(time.strptime(letzte_zeit, "%Y-%m-%d %H:%M"))
                                           - time.mktime(time.strptime(g["zuletzt"], "%Y-%m-%d %H:%M"))) / 60.0)
             except ValueError:
                 pass
+        g["tage"] = sorted(((tag, round(wh, 2)) for tag, wh in wh_pro_tag.get(g["id"], {}).items()),
+                           key=lambda tv: tv[0])[-7:]
         g["wh_heute"] = round(g["wh_heute"], 3)
         g["wh_gesamt"] = round(g["wh_gesamt"], 3)
         g["quellen"] = {k: round(v, 1) for k, v in g["quellen"].items()}
@@ -221,6 +331,8 @@ def lese_anzeige(datadir: Path, cfgdir: Path | None = None, jetzt: float | None 
             "ct_gesamt": round(wh_gesamt / 1000.0 * ct_kwh, 2),
         },
         "trend": trend,
+        "bereich": bereich,
+        "bereich_text": BEREICHE[bereich][0],
         "verlauf": verlauf,
         "tag": tageswerte,
         "anteile": sorted(((k, round(v, 1)) for k, v in anteile.items() if v >= 1.0),

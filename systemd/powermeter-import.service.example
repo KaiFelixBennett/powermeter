@@ -1,0 +1,11 @@
+# User unit: merges CSVs pushed by other hosts into this host's monthly CSV.
+# Install in ~/.config/systemd/user/ (replace the host name) and enable the timer
+# and the path unit. It writes to the data dir; the collector stays the measurer.
+[Unit]
+Description=powermeter import series from other hosts (kaisgamingdesk -> this host)
+
+[Service]
+Type=oneshot
+# Absolute paths only: the user environment has no PATH to rely on.
+ExecStart=/usr/bin/python3 -m powermeter import %h/.local/share/powermeter-import/kaisgamingdesk --device pc --geraet "Kais GamingDesk (Windows)"
+WorkingDirectory=/home/USER/repos/powermeter

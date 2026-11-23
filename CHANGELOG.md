@@ -14,6 +14,12 @@ All notable changes to this project are documented here; the format follows
   user unit with `Restart=always` (the window comes back after a crash or a close).
 - Trend against five minutes ago, and an explicit `—` for a device that has no row in
   the newest measured minute (plus its "last seen" time) instead of a silent 0 W.
+- Linux display: device detail page on click (own curve, per-source bars, daily energy
+  bars, back button / `Esc`), time ranges hour / 24 h / 7 days (`--bereich`), a mini
+  curve per device row, and `Ø kWh/day` in the week range.
+- Import trigger: a systemd `path` unit merges pushed CSVs as soon as they arrive, with
+  a five-minute timer as backstop (was fifteen) — rows from the Windows box are ~5
+  minutes old instead of up to ~30.
 - `powermeter sync`: pull measurement rows from other hosts over SSH
   (`ssh <host> python3 -m powermeter export --since …`), deduplicated append,
   per-host "since" marker in `state.json`, `--list` and `--command` escape hatch.
@@ -45,6 +51,18 @@ All notable changes to this project are documented here; the format follows
   (`cpu_w,nvidia_w,amd_w,rest_w,…`) is still read and migrated.
 
 ### Fixed
+- Linux display: the range buttons were wired to `toggled` and re-activated each other,
+  so one click recursed until the stack overflowed (GNOME reported it as
+  "powermeter is not responding"). Now `clicked` plus a re-entrancy guard, with a
+  regression test that fires the handler from inside the refresh.
+- Linux display: a device reporting in bursts (imported rows from another host) counted
+  as "no measurement" — missing from the total, the shares and the curve, which saw
+  toothed on the import rhythm. The snapshot now covers the last five minutes, gaps up
+  to ten minutes are carried forward in the total (device curves stay raw), and a late
+  device shows its last value with the timestamp instead of an em dash.
+- Linux display: source colours follow the source name, not its list position; all
+  numbers use the German decimal comma; costs moved into the hero card so the device
+  list is visible without scrolling.
 - `sync`: a host entry's own `command` now runs through the shell, so paths with spaces
   work (was `WinError 2`).
 - `sync`: the duplicate-device-id warning only fires for devices **this** machine

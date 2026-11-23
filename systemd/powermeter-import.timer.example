@@ -1,0 +1,12 @@
+# User unit: backstop for the import — the path unit reacts immediately, this one
+# catches anything the watcher missed. Five minutes, jittered.
+[Unit]
+Description=powermeter import every five minutes (backstop for the path trigger)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target
